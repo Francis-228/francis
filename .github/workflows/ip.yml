@@ -2,7 +2,7 @@ name: FOFA IP
 
 on:
   schedule:
-    - cron: "*/20 * * * *"  # 每 20 分钟自动运行
+    - cron: "*/15 * * * *"
   workflow_dispatch:          # 手动触发
 
 jobs:
@@ -35,9 +35,8 @@ jobs:
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@users.noreply.github.com"
-
-          # 确保所有需要更新的文件都被添加
-          git add zubo.txt IPTV.txt 计数.txt ip/*.txt || true
-
-          git commit -m "自动更新 FOFA 数据文件（zubo.txt, IPTV.txt, 计数.txt, ip/省份运营商.txt）" || echo "No changes to commit"
-          git push origin main
+          git add 计数.txt
+          git add ip/*.txt || true
+          git add IPTV.txt || true
+          git commit -m "自动更新：计数、IP文件、IPTV.txt" || echo "⚠️ 无需提交"
+          git push origin main || echo "⚠️ 推送失败"
