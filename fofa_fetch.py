@@ -15,7 +15,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 FOFA_URLS = {
     "https://fofa.info/result?qbase64=InVkcHh5IiAmJiBjb3VudHJ5PSJDTiI%3D": {
         "output": "ip.txt",
-        "max_pages": 1
+        "max_pages": 3
     },
 }
 
@@ -682,3 +682,4 @@ if __name__ == "__main__":
     print("\n="*50)
     print("🔚 程序执行结束")
     print("="*50)
+
