@@ -2,56 +2,58 @@ name: FOFA IPTV 自动更新
 
 on:
   schedule:
-    - cron: "*/15 * * * *"  # 每15分钟执行一次
-  workflow_dispatch:        # 支持手动触发
+    - cron: "0 */1 * * *"  # 降低频率（每1小时），避免GitHub限流
+  workflow_dispatch:        # 手动触发
 
 jobs:
   fetch-and-generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30     # 最大运行时长限制
+    timeout-minutes: 30
     permissions:
-      contents: write       # 授予写入代码库权限
-      issues: write         # 授予创建Issue权限
+      contents: write
+      issues: write
+      actions: read
 
     steps:
-      - name: 📥 检出代码库
+      - name: 📥 检出代码库（含完整历史）
         uses: actions/checkout@v4
         with:
           persist-credentials: true
-          fetch-depth: 1
+          fetch-depth: 0  # 必须拉取完整历史，否则git推送失败
 
       - name: 🐍 配置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
-          # 禁用自动依赖缓存检测（解决requirements.txt告警）
-          cache-dependency-path: "none"
+          cache-dependency-path: "./requirements.txt"  # 指定依赖文件路径
 
       - name: 📦 安装Python依赖
         run: |
           python -m pip install --upgrade pip
-          pip install requests tenacity
-          # 验证依赖安装
-          pip list | grep -E "requests|tenacity"
+          pip install -r requirements.txt
+          pip list | grep -E "requests|tenacity"  # 验证安装
 
-      - name: 🎬 安装ffmpeg（用于流检测）
+      - name: 🎬 强制安装ffmpeg（解决安装失败）
         run: |
-          sudo apt-get update -y && sudo apt-get install -y ffmpeg
-          # 验证ffmpeg/ffprobe安装
+          sudo apt-get update -y
+          sudo apt-get install -y --force-yes ffmpeg
           ffmpeg -version
           ffprobe -version
 
-      - name: 📝 创建空的requirements.txt（彻底消除告警）
-        run: touch requirements.txt
+      - name: 🛠️ 配置Git（解决推送权限）
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: 🚀 运行爬取脚本
         run: python fofa_fetch.py
         env:
-          PYTHONUNBUFFERED: "1"  # 实时输出日志
-        timeout-minutes: 25      # 脚本运行超时限制
+          PYTHONUNBUFFERED: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 自动注入的令牌
+        timeout-minutes: 25
 
-      - name: ❌ 失败通知（创建Issue）
+      - name: ❌ 失败通知
         if: failure()
         uses: actions/github-script@v7
         with:
@@ -61,11 +63,12 @@ jobs:
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `IPTV更新任务失败 [${timeStr}]`,
-              body: `## 任务失败通知\n- 触发时间：${now.toISOString()}\n- 工作流：${context.workflow}\n- 运行ID：${context.runId}\n\n请前往 [Actions页面](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) 查看详细日志！`,
-              labels: ["bug", "auto-generated"]
-            })
+              title: `IPTV更新失败 [${timeStr}]`,
+              body: `## 失败详情
+- 运行ID：${context.runId}
+- 工作流：${context.workflow}
+- 触发时间：${now.toISOString()}
 
-      - name: 🧹 清理临时文件
-        if: always()
-        run: rm -f requirements.txt
+[查看完整日志](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              labels: ["auto-failure"]
+            })
