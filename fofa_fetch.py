@@ -13,7 +13,7 @@ FOFA_URLS = {
     "https://fofa.info/result?qbase64=InVkcHh5IiAmJiBjb3VudHJ5PSJDTiI%3D": "ip.txt",
 }
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
 COUNTER_FILE = "计数.txt"
@@ -49,7 +49,7 @@ CHANNEL_CATEGORIES = {
     ],
     "河北": [ 
         "河北经济生活", "河北都市", "河北影视剧", "河北少儿科教", "河北公共", "河北农民", "睛彩河北","三佳购物",
-       ],#任意添加，与仓库中rtp/省份运营商.txt内频道一致即可，或在下方频道名映射中改名
+    ],
 }
 
 # ===== 映射（别名 -> 标准名） =====
@@ -150,9 +150,10 @@ CHANNEL_MAPPING = {
     "中国交通": ["中国交通频道"],
     "中国天气": ["中国天气频道"],
     "华数4K": ["华数低于4K", "华数4K电影", "华数爱上4K"],
-}#格式为"频道分类中的标准名": ["rtp/中的名字"],
+}
 
 # ===============================
+# 计数相关函数
 def get_run_count():
     if os.path.exists(COUNTER_FILE):
         try:
@@ -168,108 +169,188 @@ def save_run_count(count):
     except Exception as e:
         print(f"⚠️ 写计数文件失败：{e}")
 
-
 # ===============================
+# IP/域名类型判断
+def get_ip_type(ip_or_domain):
+    # 匹配IPv6（完整规则）
+    ipv6_pattern = r'^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4})|(([0-9a-fA-F]{1,4}:){1,7}:)|(([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4})|(([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2})|(([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3})|(([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4})|(([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5})|([0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}))|(:((:[0-9a-fA-F]{1,4}){1,7}|:))|(::([fF]{4}(:0{1,4}){0,1}:)?((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])$'
+    if re.match(ipv6_pattern, ip_or_domain):
+        return "ipv6"
+    # 匹配IPv4
+    elif re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip_or_domain):
+        return "ipv4"
+    # 其余为域名
+    else:
+        return "domain"
+
+# 域名解析（兼容IPv4/IPv6）
+def resolve_domain(domain):
+    """解析域名，返回 (ipv4列表, ipv6列表)"""
+    ipv4_list = []
+    ipv6_list = []
+    try:
+        # 获取所有地址信息
+        addrinfo = socket.getaddrinfo(domain, None, 0, socket.SOCK_STREAM)
+        for addr in addrinfo:
+            ip = addr[4][0]
+            if get_ip_type(ip) == "ipv4":
+                ipv4_list.append(ip)
+            elif get_ip_type(ip) == "ipv6":
+                ipv6_list.append(ip)
+    except Exception as e:
+        print(f"❌ 域名 {domain} 解析失败：{e}")
+    return list(set(ipv4_list)), list(set(ipv6_list))
+
+# 运营商判断（API）
 def get_isp_from_api(data):
     isp_raw = (data.get("isp") or "").lower()
-
     if "telecom" in isp_raw or "ct" in isp_raw or "chinatelecom" in isp_raw:
         return "电信"
     elif "unicom" in isp_raw or "cu" in isp_raw or "chinaunicom" in isp_raw:
         return "联通"
     elif "mobile" in isp_raw or "cm" in isp_raw or "chinamobile" in isp_raw:
         return "移动"
-
+    elif "radio" in isp_raw or "cable" in isp_raw:
+        return "广电"
     return "未知"
 
-
+# 运营商判断（正则/精准匹配2025最新段）
 def get_isp_by_regex(ip):
-    if re.match(r"^(1[0-9]{2}|2[0-3]{2}|42|43|58|59|60|61|110|111|112|113|114|115|116|117|118|119|120|121|122|123|124|125|126|127|175|180|182|183|184|185|186|187|188|189|223)\.", ip):
-        return "电信"
-
-    elif re.match(r"^(42|43|58|59|60|61|110|111|112|113|114|115|116|117|118|119|120|121|122|123|124|125|126|127|175|180|182|183|184|185|186|187|188|189|223)\.", ip):
-        return "联通"
-
-    elif re.match(r"^(223|36|37|38|39|100|101|102|103|104|105|106|107|108|109|134|135|136|137|138|139|150|151|152|157|158|159|170|178|182|183|184|187|188|189)\.", ip):
-        return "移动"
-
+    ip_type = get_ip_type(ip)
+    
+    if ip_type == "ipv4":
+        # IPv4 精准段（2025最新）
+        # 电信 IPv4 段
+        telecom_ipv4 = r"^(103\.|112\.|113\.|121\.|140\.143\.|180\.|181\.|189\.|202\.96\.|219\.133\.|220\.|223\.)$"
+        # 联通 IPv4 段
+        unicom_ipv4 = r"^(101\.|106\.|114\.|120\.|130\.|131\.|132\.|145\.|155\.|156\.|166\.|175\.|176\.|185\.|186\.|196\.|202\.106\.|202\.112\.|202\.165\.|202\.99\.|210\.42\.|218\.)$"
+        # 移动 IPv4 段
+        mobile_ipv4 = r"^(102\.|108\.|109\.|134\.|135\.|136\.|137\.|138\.|139\.|147\.|150\.|151\.|152\.|157\.|158\.|159\.|172\.|178\.|182\.|183\.|184\.|187\.|188\.|198\.)$"
+        
+        if re.match(telecom_ipv4, ip):
+            return "电信"
+        elif re.match(unicom_ipv4, ip):
+            return "联通"
+        elif re.match(mobile_ipv4, ip):
+            return "移动"
+    
+    elif ip_type == "ipv6":
+        # IPv6 精准匹配（2025三大运营商官方段）
+        ip_lower = ip.lower()
+        
+        # 电信 IPv6：240e::/16、2409:8000::/20、2408:8000::/20
+        if ip_lower.startswith("240e:") or \
+           (ip_lower.startswith("2409:8") and len(ip_lower) >= 6 and ip_lower[5] == '8') or \
+           (ip_lower.startswith("2408:8") and len(ip_lower) >= 6 and ip_lower[5] == '8'):
+            return "电信"
+        
+        # 联通 IPv6：2408::/16（排除8000::/20）、2407::/16
+        elif ip_lower.startswith("2407:") or \
+             (ip_lower.startswith("2408:") and not (len(ip_lower) >= 6 and ip_lower[5] == '8')):
+            return "联通"
+        
+        # 移动 IPv6：2409::/16（排除8000::/20）、240a::/16、240b::/16
+        elif ip_lower.startswith(("240a:", "240b:")) or \
+             (ip_lower.startswith("2409:") and not (len(ip_lower) >= 6 and ip_lower[5] == '8')):
+            return "移动"
+        
+        # 广电 IPv6
+        elif ip_lower.startswith("240c:"):
+            return "广电"
+    
     return "未知"
-
 
 # ===============================
-# 第一阶段
+# 第一阶段：爬取+解析IP/域名+分类存储
 def first_stage():
     os.makedirs(IP_DIR, exist_ok=True)
-    all_ips = set()
+    all_targets = set()  # 存储 域名/IP:端口
 
     for url, filename in FOFA_URLS.items():
         print(f"📡 正在爬取 {filename} ...")
         try:
             r = requests.get(url, headers=HEADERS, timeout=15)
             urls_all = re.findall(r'<a href="http://(.*?)"', r.text)
-            all_ips.update(u.strip() for u in urls_all if u.strip())
+            all_targets.update(u.strip() for u in urls_all if u.strip())
         except Exception as e:
             print(f"❌ 爬取失败：{e}")
         time.sleep(3)
 
     province_isp_dict = {}
 
-    for ip_port in all_ips:
+    for target_port in all_targets:
         try:
-            host = ip_port.split(":")[0]
-
-            is_ip = re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host)
-
-            if not is_ip:
-                try:
-                    resolved_ip = socket.gethostbyname(host)
-                    print(f"🌐 域名解析成功: {host} → {resolved_ip}")
-                    ip = resolved_ip
-                except Exception:
-                    print(f"❌ 域名解析失败，跳过：{ip_port}")
-                    continue
-            else:
-                ip = host
-
-            res = requests.get(f"http://ip-api.com/json/{ip}?lang=zh-CN", timeout=10)
-            data = res.json()
-
-            province = data.get("regionName", "未知")
-            isp = get_isp_from_api(data)
-
-            if isp == "未知":
-                isp = get_isp_by_regex(ip)
-
-            if isp == "未知":
-                print(f"⚠️ 无法判断运营商，跳过：{ip_port}")
+            # 拆分 地址:端口
+            if ":" not in target_port:
+                print(f"⚠️ 无端口，跳过：{target_port}")
+                continue
+            host, port = target_port.rsplit(":", 1)
+            if not port.isdigit():
+                print(f"⚠️ 端口非法，跳过：{target_port}")
                 continue
 
-            fname = f"{province}{isp}.txt"
-            province_isp_dict.setdefault(fname, set()).add(ip_port)
+            # 区分IP类型
+            ip_type = get_ip_type(host)
+            resolve_ips = []
+            
+            if ip_type == "domain":
+                # 解析域名，优先IPv4，再IPv6
+                ipv4_list, ipv6_list = resolve_domain(host)
+                resolve_ips = ipv4_list + ipv6_list
+                if not resolve_ips:
+                    print(f"❌ 域名 {host} 无有效解析，跳过：{target_port}")
+                    continue
+                print(f"🌐 域名解析结果: {host} → IPv4:{ipv4_list} IPv6:{ipv6_list}")
+            else:
+                # IP直接使用
+                resolve_ips = [host]
+
+            # 遍历解析后的IP（域名可能解析出多个IP）
+            for ip in resolve_ips:
+                # 获取IP归属和运营商
+                try:
+                    # ip-api.com 支持IPv6
+                    res = requests.get(f"http://ip-api.com/json/{ip}?lang=zh-CN", timeout=10)
+                    data = res.json()
+                    province = data.get("regionName", "未知")
+                    isp = get_isp_from_api(data)
+                    if isp == "未知":
+                        isp = get_isp_by_regex(ip)
+                except Exception as e:
+                    print(f"⚠️ IP {ip} 归属查询失败：{e}")
+                    province = "未知"
+                    isp = "未知"
+
+                if isp == "未知":
+                    print(f"⚠️ 无法判断运营商，跳过：{ip}:{port}")
+                    continue
+
+                # 保留原始目标（域名/IP:端口）
+                fname = f"{province}{isp}.txt"
+                province_isp_dict.setdefault(fname, set()).add(target_port)
 
         except Exception as e:
-            print(f"⚠️ 解析 {ip_port} 出错：{e}")
+            print(f"⚠️ 解析 {target_port} 出错：{e}")
             continue
 
     count = get_run_count() + 1
     save_run_count(count)
 
-    for filename, ip_set in province_isp_dict.items():
+    for filename, target_set in province_isp_dict.items():
         path = os.path.join(IP_DIR, filename)
         try:
             with open(path, "a", encoding="utf-8") as f:
-                for ip_port in sorted(ip_set):
-                    f.write(ip_port + "\n")
-            print(f"{path} 已追加写入 {len(ip_set)} 个 IP")
+                for target_port in sorted(target_set):
+                    f.write(target_port + "\n")
+            print(f"{path} 已追加写入 {len(target_set)} 个目标（域名/IP）")
         except Exception as e:
             print(f"❌ 写入 {path} 失败：{e}")
 
     print(f"✅ 第一阶段完成，当前轮次：{count}")
     return count
 
-
 # ===============================
-# 第二阶段
+# 第二阶段：生成zubo.txt
 def second_stage():
     print("🔔 第二阶段触发：生成 zubo.txt")
     if not os.path.exists(IP_DIR):
@@ -333,9 +414,8 @@ def second_stage():
     except Exception as e:
         print(f"❌ 写文件失败：{e}")
 
-
 # ===============================
-# 第三阶段
+# 第三阶段：检测+生成IPTV.txt+写回可用IP
 def third_stage():
     print("🧩 第三阶段：多线程检测代表频道生成 IPTV.txt 并写回可用 IP 到 ip/目录（覆盖）")
 
@@ -343,10 +423,16 @@ def third_stage():
         print("⚠️ zubo.txt 不存在，跳过第三阶段")
         return
 
+    # 改造：ffprobe检测兼容IPv6/域名
     def check_stream(url, timeout=5):
         try:
+            cmd = [
+                "ffprobe", "-v", "error", "-show_streams", "-i", url,
+                "-timeout", f"{timeout * 1000000}",  # 超时（微秒）
+                "-dns_cache_timeout", "0"  # 禁用DNS缓存
+            ]
             result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_streams", "-i", url],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=timeout + 2
@@ -391,7 +477,6 @@ def third_stage():
                 continue
 
             ip_port = m.group(1)
-
             groups.setdefault(ip_port, []).append((ch_main, url))
 
     # 选择代表频道并检测
@@ -402,7 +487,7 @@ def third_stage():
         playable = any(check_stream(u) for u in rep_channels)
         return ip_port, playable
 
-    print(f"🚀 启动多线程检测（共 {len(groups)} 个 IP）...")
+    print(f"🚀 启动多线程检测（共 {len(groups)} 个目标）...")
     playable_ips = set()
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(detect_ip, ip, chs): ip for ip, chs in groups.items()}
@@ -415,7 +500,7 @@ def third_stage():
             if ok:
                 playable_ips.add(ip_port)
 
-    print(f"✅ 检测完成，可播放 IP 共 {len(playable_ips)} 个")
+    print(f"✅ 检测完成，可播放目标共 {len(playable_ips)} 个")
 
     valid_lines = []
     seen = set()
@@ -442,15 +527,13 @@ def third_stage():
         except Exception as e:
             print(f"❌ 写回 {target_file} 失败：{e}")
 
-    # 写 IPTV.txt（包含更新时间与分类）
+    # 写 IPTV.txt
     beijing_now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-
     try:
         with open(IPTV_FILE, "w", encoding="utf-8") as f:
             f.write(f"更新时间: {beijing_now}（北京时间）\n\n")
             f.write("更新时间,#genre#\n")
-            f.write(f"{beijing_now},\n\n")  # 保留更新时间，链接位置留空
-            # 遍历分类写入频道
+            f.write(f"{beijing_now},\n\n")
             for category, ch_list in CHANNEL_CATEGORIES.items():
                 f.write(f"{category},#genre#\n")
                 for ch in ch_list:
@@ -495,5 +578,3 @@ if __name__ == "__main__":
         print("ℹ️ 本次不是 10 的倍数，跳过第二、三阶段")
 
     push_all_files()
-
-
