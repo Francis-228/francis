@@ -2,7 +2,7 @@ name: FOFA IPTV 自动更新
 
 on:
   schedule:
-    - cron: "0 */1 * * *"
+    - cron: "*/15 * * * *"  # 恢复原15分钟频率，取消1小时修改
   workflow_dispatch:
 
 jobs:
