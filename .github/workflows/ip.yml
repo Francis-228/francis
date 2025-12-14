@@ -49,17 +49,12 @@ jobs:
         with:
           script: |
             // 创建失败通知Issue
+            const now = new Date();
+            const timeStr = now.toISOString().slice(0, 19).replace('T', ' ');
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `IPTV更新任务失败 [${new Date().toISOString().slice(0, 19).replace('T', ' ')}]`,
-              body: `
-## 任务失败通知
-- 触发时间：${new Date().toISOString()}
-- 工作流：${context.workflow}
-- 运行ID：${context.runId}
-
-请前往 [Actions页面](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) 查看详细日志！
-              `,
+              title: `IPTV更新任务失败 [${timeStr}]`,
+              body: `## 任务失败通知\n- 触发时间：${now.toISOString()}\n- 工作流：${context.workflow}\n- 运行ID：${context.runId}\n\n请前往 [Actions页面](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) 查看详细日志！`,
               labels: ["bug", "auto-generated"]
             })
