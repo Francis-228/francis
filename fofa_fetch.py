@@ -188,7 +188,7 @@ def safe_request(url, method="get", **kwargs):
     kwargs.setdefault("headers", get_random_headers())
     kwargs.setdefault("timeout", REQUEST_TIMEOUT)
     kwargs.setdefault("proxies", PROXIES)
-    response = requests.request(method, url,** kwargs)
+    response = requests.request(method, url, **kwargs)
     response.raise_for_status()
     return response
 
@@ -393,93 +393,83 @@ def first_stage():
 
             for ip in resolve_ips:
                 ip_info = get_ip_info(ip)
-                province = ip_info["province"] or "未知"
-                isp = get_isp_from_api(ip_info["isp"])
+                province = ip_info["province"]
+                isp_raw = ip_info["isp"]
                 
+                # 获取运营商
+                isp = get_isp_from_api(isp_raw)
                 if isp == "未知":
                     isp = get_isp_by_regex(ip)
-
+                
                 if isp == "未知":
-                    print(f"⚠️ 无法识别运营商，跳过：{ip}:{port}")
+                    print(f"⚠️ 无法判断运营商，跳过：{target_port}")
                     continue
-
+                
                 fname = f"{province}{isp}.txt"
                 province_isp_dict.setdefault(fname, set()).add(target_port)
-
+                
         except Exception as e:
-            print(f"⚠️ 处理 {target_port} 出错：{e}")
+            print(f"⚠️ 解析 {target_port} 出错：{e}")
             continue
 
     count = get_run_count() + 1
     save_run_count(count)
 
-    print(f"\n💾 开始写入IP文件...")
-    for filename, target_set in province_isp_dict.items():
+    for filename, ip_set in province_isp_dict.items():
         path = os.path.join(IP_DIR, filename)
         try:
-            existing = set()
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    existing = set(f.read().splitlines())
-            
-            new_content = existing.union(target_set)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("\n".join(sorted(new_content)) + "\n")
-            
-            print(f"✅ {path} → 总计 {len(new_content)} 条（新增 {len(new_content) - len(existing)} 条）")
+            with open(path, "a", encoding="utf-8") as f:
+                for target_port in sorted(ip_set):
+                    f.write(target_port + "\n")
+            print(f"{path} 已追加写入 {len(ip_set)} 个 IP")
         except Exception as e:
             print(f"❌ 写入 {path} 失败：{e}")
 
-    print(f"\n✅ 第一阶段完成，当前轮次：{count}")
+    print(f"✅ 第一阶段完成，当前轮次：{count}")
     return count
 
 # ===============================
-# 第二阶段：生成zubo.txt
+# 第二阶段：组合IP和RTP频道
 def second_stage():
-    print("\n🔔 启动第二阶段：生成zubo.txt...")
-    if not os.path.exists(IP_DIR) or not os.path.exists(RTP_DIR):
-        print("⚠️ ip或rtp目录不存在，跳过第二阶段")
-        return
-
-    rtp_cache = {}
-    for rtp_file in os.listdir(RTP_DIR):
-        if not rtp_file.endswith(".txt"):
-            continue
-        rtp_path = os.path.join(RTP_DIR, rtp_file)
-        try:
-            with open(rtp_path, encoding="utf-8") as f:
-                rtp_cache[rtp_file] = [
-                    line.strip() for line in f 
-                    if line.strip() and "," in line.strip()
-                ]
-        except Exception as e:
-            print(f"⚠️ 读取RTP文件 {rtp_file} 失败：{e}")
-
-    if not rtp_cache:
-        print("⚠️ 无有效RTP文件，跳过第二阶段")
+    print("🔔 第二阶段触发：生成 zubo.txt")
+    if not os.path.exists(IP_DIR):
+        print("⚠️ ip 目录不存在，跳过第二阶段")
         return
 
     combined_lines = []
+    
+    if not os.path.exists(RTP_DIR):
+        print("⚠️ rtp 目录不存在，无法进行第二阶段组合，跳过")
+        return
+
     for ip_file in os.listdir(IP_DIR):
-        if not ip_file.endswith(".txt") or ip_file not in rtp_cache:
+        if not ip_file.endswith(".txt"):
             continue
 
         ip_path = os.path.join(IP_DIR, ip_file)
-        try:
-            with open(ip_path, encoding="utf-8") as f:
-                ip_lines = [line.strip() for line in f if line.strip()]
-        except Exception as e:
-            print(f"⚠️ 读取IP文件 {ip_file} 失败：{e}，跳过")
+        rtp_path = os.path.join(RTP_DIR, ip_file)
+
+        if not os.path.exists(rtp_path):
             continue
 
-        if not ip_lines:
+        try:
+            with open(ip_path, encoding="utf-8") as f1, open(rtp_path, encoding="utf-8") as f2:
+                ip_lines = [x.strip() for x in f1 if x.strip()]
+                rtp_lines = [x.strip() for x in f2 if x.strip()]
+        except Exception as e:
+            print(f"⚠️ 文件读取失败：{e}")
+            continue
+
+        if not ip_lines or not rtp_lines:
             continue
 
         for ip_port in ip_lines:
-            for rtp_line in rtp_cache[ip_file]:
-                ch_name, rtp_url = rtp_line.split(",", 1)
-                rtp_url = rtp_url.strip()
+            for rtp_line in rtp_lines:
+                if "," not in rtp_line:
+                    continue
 
+                ch_name, rtp_url = rtp_line.split(",", 1)
+                
                 if "rtp://" in rtp_url:
                     part = rtp_url.split("rtp://", 1)[1]
                     combined_lines.append(f"{ch_name},http://{ip_port}/rtp/{part}")
@@ -487,56 +477,50 @@ def second_stage():
                     part = rtp_url.split("udp://", 1)[1]
                     combined_lines.append(f"{ch_name},http://{ip_port}/udp/{part}")
 
-    unique_lines = {}
-    for line in reversed(combined_lines):
-        if "," not in line:
-            continue
+    # 去重
+    unique = {}
+    for line in combined_lines:
         url_part = line.split(",", 1)[1]
-        if url_part not in unique_lines:
-            unique_lines[url_part] = line
-    final_lines = list(reversed(unique_lines.values()))
+        if url_part not in unique:
+            unique[url_part] = line
 
     try:
         with open(ZUBO_FILE, "w", encoding="utf-8") as f:
-            f.write("\n".join(final_lines) + "\n")
-        print(f"✅ zubo.txt 生成完成 → 总计 {len(final_lines)} 条有效链接")
+            for line in unique.values():
+                f.write(line + "\n")
+        print(f"🎯 第二阶段完成，写入 {len(unique)} 条记录")
     except Exception as e:
-        print(f"❌ 写入zubo.txt失败：{e}")
+        print(f"❌ 写文件失败：{e}")
 
 # ===============================
-# 第三阶段：流检测与IPTV生成
+# 第三阶段：检测可播放频道并生成IPTV.txt（按照文件1格式）
 def third_stage():
-    print("\n🧩 启动第三阶段：流检测与IPTV生成...")
+    print("🧩 第三阶段：多线程检测代表频道生成 IPTV.txt 并写回可用 IP 到 ip/目录（覆盖）")
+
     if not os.path.exists(ZUBO_FILE):
-        print("⚠️ zubo.txt不存在，跳过第三阶段")
+        print("⚠️ zubo.txt 不存在，跳过第三阶段")
         return
 
     def check_stream(url, timeout=5):
+        """检测流媒体是否可播放"""
         try:
-            cmd = [
-                "ffprobe", "-v", "error", "-show_streams", "-i", url,
-                "-timeout", f"{timeout * 1000000}",
-                "-dns_cache_timeout", "0",
-                "-hide_banner"
-            ]
             result = subprocess.run(
-                cmd,
+                ["ffprobe", "-v", "error", "-show_streams", "-i", url],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=timeout + 2,
-                text=False,
-                preexec_fn=lambda: os.nice(10) if os.name != 'nt' else None
+                timeout=timeout + 2
             )
-            return b"codec_type=video" in result.stdout
-        except Exception as e:
+            return b"codec_type" in result.stdout
+        except Exception:
             return False
 
+    # 别名映射
     alias_map = {}
     for main_name, aliases in CHANNEL_MAPPING.items():
         for alias in aliases:
             alias_map[alias] = main_name
-        alias_map[main_name] = main_name
 
+    # 读取现有ip文件，建立ip_port -> operator映射
     ip_info = {}
     if os.path.exists(IP_DIR):
         for fname in os.listdir(IP_DIR):
@@ -547,190 +531,107 @@ def third_stage():
                 with open(os.path.join(IP_DIR, fname), encoding="utf-8") as f:
                     for line in f:
                         ip_port = line.strip()
-                        if ip_port and ":" in ip_port:
+                        if ip_port:
                             ip_info[ip_port] = province_operator
             except Exception as e:
-                print(f"⚠️ 读取IP文件 {fname} 失败：{e}")
+                print(f"⚠️ 读取 {fname} 失败：{e}")
 
+    # 读取zubo.txt并按ip:port分组
     groups = {}
-    try:
-        with open(ZUBO_FILE, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if "," not in line:
-                    continue
+    with open(ZUBO_FILE, encoding="utf-8") as f:
+        for line in f:
+            if "," not in line:
+                continue
 
-                ch_name, url = line.split(",", 1)
-                ch_main = alias_map.get(ch_name, ch_name)
-                m = re.match(r"http://([^/]+)/", url)
-                if m:
-                    ip_port = m.group(1)
-                    groups.setdefault(ip_port, []).append((ch_main, url))
-    except Exception as e:
-        print(f"❌ 读取zubo.txt失败：{e}")
-        return
+            ch_name, url = line.strip().split(",", 1)
+            ch_main = alias_map.get(ch_name, ch_name)
+            m = re.match(r"http://([^/]+)/", url)
+            if not m:
+                continue
 
-    if not groups:
-        print("⚠️ 无有效分组数据，跳过检测")
-        return
+            ip_port = m.group(1)
+            groups.setdefault(ip_port, []).append((ch_main, url))
 
-    max_workers = min(MAX_DETECT_THREADS, len(groups))
-    print(f"🚀 启动多线程检测 → 线程数：{max_workers}，目标数：{len(groups)}")
-    
+    # 选择代表频道并检测（优先CCTV1）
+    def detect_ip(ip_port, entries):
+        rep_channels = [u for c, u in entries if c == "CCTV1"]
+        if not rep_channels and entries:
+            rep_channels = [entries[0][1]]
+        playable = any(check_stream(u) for u in rep_channels)
+        return ip_port, playable
+
+    print(f"🚀 启动多线程检测（共 {len(groups)} 个 IP）...")
     playable_ips = set()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {}
-        for ip_port, entries in groups.items():
-            test_urls = [u for c, u in entries if c == "CCTV1"] or [entries[0][1]]
-            futures[executor.submit(check_stream, test_urls[0])] = ip_port
-
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_DETECT_THREADS) as executor:
+        futures = {executor.submit(detect_ip, ip, chs): ip for ip, chs in groups.items()}
         for future in concurrent.futures.as_completed(futures):
-            ip_port = futures[future]
             try:
-                if future.result():
-                    playable_ips.add(ip_port)
-                    print(f"✅ {ip_port} → 检测通过")
-                else:
-                    print(f"❌ {ip_port} → 检测失败")
+                ip_port, ok = future.result()
             except Exception as e:
-                print(f"⚠️ 检测 {ip_port} 异常：{e}")
+                print(f"⚠️ 线程检测返回异常：{e}")
+                continue
+            if ok:
+                playable_ips.add(ip_port)
 
-    print(f"\n✅ 检测完成 → 可用IP总数：{len(playable_ips)}")
-    if not playable_ips:
-        print("⚠️ 无可用IP，跳过IPTV生成")
-        return
+    print(f"✅ 检测完成，可播放 IP 共 {len(playable_ips)} 个")
 
+    # 生成最终IPTV.txt（按照文件1的格式）
     valid_lines = []
     seen = set()
     operator_playable_ips = {}
 
     for ip_port in playable_ips:
         operator = ip_info.get(ip_port, "未知")
-        operator_playable_ips.setdefault(operator, set()).add(ip_port)
-        
-        for ch_name, url in groups.get(ip_port, []):
-            key = f"{ch_name},{url}"
+
+        for c, u in groups.get(ip_port, []):
+            key = f"{c},{u}"
             if key not in seen:
                 seen.add(key)
-                valid_lines.append(f"{ch_name},{url}${operator}")
+                # 格式：频道名,URL${运营商省份}
+                valid_lines.append(f"{c},{u}${operator}")
+                operator_playable_ips.setdefault(operator, set()).add(ip_port)
 
-    print("\n🧹 清理无效IP文件...")
-    for fname in os.listdir(IP_DIR):
-        file_path = os.path.join(IP_DIR, fname)
-        if not fname.endswith(".txt"):
-            continue
-        if os.path.getsize(file_path) == 0:
-            os.remove(file_path)
-            print(f"✅ 删除空文件：{fname}")
-        operator = fname.replace(".txt", "")
-        if operator not in operator_playable_ips and os.path.getsize(file_path) > 0:
-            os.remove(file_path)
-            print(f"✅ 删除无效文件：{fname}")
-
-    print("\n💾 写回可用IP文件...")
+    # 写回可用IP到ip/目录（覆盖）
     for operator, ip_set in operator_playable_ips.items():
-        target_file = os.path.join(IP_DIR, f"{operator}.txt")
+        target_file = os.path.join(IP_DIR, operator + ".txt")
         try:
-            with open(target_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(sorted(ip_set)) + "\n")
-            print(f"✅ {target_file} → 保留 {len(ip_set)} 个可用IP")
+            with open(target_file, "w", encoding="utf-8") as wf:
+                for ip_p in sorted(ip_set):
+                    wf.write(ip_p + "\n")
+            print(f"📁 {target_file} 已覆盖写入 {len(ip_set)} 个可用 IP")
         except Exception as e:
             print(f"❌ 写回 {target_file} 失败：{e}")
 
-    print("\n📺 生成IPTV.txt...")
-    beijing_now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    # 写入IPTV.txt
     try:
         with open(IPTV_FILE, "w", encoding="utf-8") as f:
-            f.write(f"# IPTV列表 - 更新时间：{beijing_now}（北京时间）\n")
-            f.write(f"# 格式：频道名,播放地址$运营商\n")
-            f.write(f"# 总计有效频道：{len(valid_lines)}\n\n")
-            
-            for category, ch_list in CHANNEL_CATEGORIES.items():
-                f.write(f"# === {category} ===\n")
-                category_lines = [
-                    line for line in valid_lines 
-                    if line.split(",", 1)[0] in ch_list
-                ]
-                for line in category_lines:
-                    f.write(line + "\n")
-                f.write("\n")
-                print(f"✅ {category} → {len(category_lines)} 个有效频道")
-
-        print(f"\n🎉 IPTV.txt 生成完成 → 总计 {len(valid_lines)} 条有效频道")
+            for line in valid_lines:
+                f.write(line + "\n")
+        print(f"📺 IPTV.txt 生成完成，共 {len(valid_lines)} 条记录")
     except Exception as e:
-        print(f"❌ 生成IPTV.txt失败：{e}")
+        print(f"❌ 写入 IPTV.txt 失败：{e}")
 
 # ===============================
-# GitHub推送函数
-def push_all_files():
-    print("\n🚀 推送更新到GitHub...")
-    try:
-        from subprocess import run, PIPE, CalledProcessError
+def main():
+    """主函数：按顺序执行三个阶段"""
+    print("=" * 60)
+    print("🎬 开始执行IPTV频道聚合脚本（按照文件1格式）")
+    print("=" * 60)
+    
+    # 第一阶段
+    count = first_stage()
+    
+    # 第二阶段
+    second_stage()
+    
+    # 第三阶段
+    third_stage()
+    
+    print("=" * 60)
+    print("🎉 所有阶段执行完成！")
+    print(f"📊 当前总轮次：{count}")
+    print(f"📄 IPTV文件路径：{IPTV_FILE}")
+    print("=" * 60)
 
-        def git_exec(args):
-            try:
-                result = run(
-                    args,
-                    check=True,
-                    stdout=PIPE,
-                    stderr=PIPE,
-                    text=True
-                )
-                return result.stdout
-            except CalledProcessError as e:
-                print(f"⚠️ Git命令失败：{e.stderr}")
-                return None
-
-        git_exec(["git", "add", COUNTER_FILE])
-        git_exec(["git", "add", f"{IP_DIR}/*.txt"])
-        git_exec(["git", "add", ZUBO_FILE])
-        git_exec(["git", "add", IPTV_FILE])
-        git_exec(["git", "add", HISTORY_FILE])
-
-        status = git_exec(["git", "status", "--porcelain"])
-        if not status:
-            print("ℹ️ 无文件变更，无需提交")
-            return
-
-        commit_msg = f"自动更新IPTV列表 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        git_exec(["git", "commit", "-m", commit_msg])
-        git_exec(["git", "push", "origin", "main"])
-
-        print("✅ 推送成功！")
-    except Exception as e:
-        print(f"❌ 推送失败：{e}")
-
-# ===============================
-# 主执行逻辑
 if __name__ == "__main__":
-    print("="*50)
-    print("🎬 启动FOFA IPTV自动爬取程序")
-    print(f"🕒 当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*50)
-
-    os.makedirs(IP_DIR, exist_ok=True)
-    os.makedirs(RTP_DIR, exist_ok=True)
-
-    try:
-        run_count = first_stage()
-
-        now = datetime.now()
-        trigger_full = (run_count % 10 == 0) or (now.hour == 3 and 0 <= now.minute < 15)
-        
-        if trigger_full:
-            second_stage()
-            third_stage()
-        else:
-            print(f"\nℹ️ 当前轮次 {run_count}，未触发第二、三阶段（每10轮或凌晨3点执行全量检测）")
-
-        push_all_files()
-
-    except Exception as e:
-        print(f"\n💥 程序执行异常：{e}")
-        push_all_files()
-
-    print("\n="*50)
-    print("🔚 程序执行结束")
-    print("="*50)
-
-
+    main()
