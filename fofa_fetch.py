@@ -1,32 +1,32 @@
-进口操作系统（Operating System）
-进口关于
-进口要求
-进口时间
-进口并行未来
-进口子过程
-从日期时间进口日期时间，时区，时间增量
+import os
+import re
+import requests
+import socket
+import concurrent.futures
+import subprocess
+from datetime import datetime, timezone, timedelta
 
 # ===============================
 # 配置区
-FOFA _网址={
-    "https://fofa.info/result？qbase 64 = invkchh 5 iiamjibjb 3 vud HJ 5 psjdtii % 3D ": " ip.txt ",
+FOFA_URLS = {
+    "https://fofa.info/result?qbase64=invkchh5iIAMJIbJB3VudHJ5PSJDTiI%3D": "ip.txt",
 }
-标题={
-    "用户代理": “Mozilla/5.0(Windows NT 10.0；Win64x64)"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0(Windows NT 10.0; Win64; x64)"
 }
 
-计数器_文件="计数。txt "
-IP_DIR ="知识产权"
-RTP_DIR =" rtp "
-ZUBO_FILE =" zubo.txt "
-IPTV_FILE =" IPTV.txt "
+COUNTER_FILE = "计数.txt"
+IP_DIR = "ip"
+RTP_DIR = "rtp"
+ZUBO_FILE = "zubo.txt"
+IPTV_FILE = "IPTV.txt"
 
 # ===============================
 # 分类与映射配置
-频道_类别={
+CHANNEL_CATEGORIES = {
     "央视频道": [
-        " CCTV1 ", " CCTV2 ", " CCTV3 ", " CCTV4 ", “CCTV4欧洲", “CCTV4美洲", " CCTV5 ", " CCTV5+", " CCTV6 ", " CCTV7 ",
-        " CCTV8 ", " CCTV9 ", " CCTV10 ", " CCTV11 ", " CCTV12 ", " CCTV13 ", " CCTV14 ", " CCTV15 ", " CCTV16 ", " CCTV17 ", " CCTV4K ", " CCTV8K ",
+        "CCTV1", "CCTV2", "CCTV3", "CCTV4", "CCTV4欧洲", "CCTV4美洲", "CCTV5", "CCTV5+", "CCTV6", "CCTV7",
+        "CCTV8", "CCTV9", "CCTV10", "CCTV11", "CCTV12", "CCTV13", "CCTV14", "CCTV15", "CCTV16", "CCTV17", "CCTV4K", "CCTV8K",
         "兵器科技", "风云音乐", "风云足球", "风云剧场", "怀旧剧场", "第一剧场", "女性时尚", "世界地理", "央视台球", "高尔夫网球",
         "央视文化精品", "卫生健康", "电视指南", "中学生", "发现之旅", "书法频道", "国学频道", "环球奇观"
     ],
@@ -49,7 +49,7 @@ IPTV_FILE =" IPTV.txt "
     "湖北": [
         "湖北公共新闻", "湖北经视频道", "湖北综合频道", "湖北垄上频道", "湖北影视频道", "湖北生活频道", "湖北教育频道", "武汉新闻综合", "武汉电视剧", "武汉科技生活",
         "武汉文体频道", "武汉教育频道", "阳新综合", "房县综合", "蔡甸综合",
-    ],#任意添加，与仓库中rtp/省份运营商.txt内频道一致即可，或在下方频道名映射中改名
+    ],
 }
 
 # ===== 映射（别名 -> 标准名） =====
@@ -150,7 +150,7 @@ CHANNEL_MAPPING = {
     "中国交通": ["中国交通频道"],
     "中国天气": ["中国天气频道"],
     "华数4K": ["华数低于4K", "华数4K电影", "华数爱上4K"],
-}#格式为"频道分类中的标准名": ["rtp/中的名字"],
+}
 
 # ===============================
 def get_run_count():
@@ -444,14 +444,11 @@ def third_stage():
 
     # 写 IPTV.txt（包含更新时间与分类）
     beijing_now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-    disclaimer_url = "https://kakaxi-1.asia/LOGO/Disclaimer.mp4"
 
     try:
         with open(IPTV_FILE, "w", encoding="utf-8") as f:
             f.write(f"更新时间: {beijing_now}（北京时间）\n\n")
-            f.write("更新时间,#genre#\n")
-            f.write(f"{beijing_now},{disclaimer_url}\n\n")
-
+            
             for category, ch_list in CHANNEL_CATEGORIES.items():
                 f.write(f"{category},#genre#\n")
                 for ch in ch_list:
