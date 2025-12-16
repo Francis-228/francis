@@ -1,7 +1,7 @@
 import os
 import re
 import requests
-import socket
+import time
 import concurrent.futures
 import subprocess
 from datetime import datetime, timezone, timedelta
@@ -9,10 +9,10 @@ from datetime import datetime, timezone, timedelta
 # ===============================
 # 配置区
 FOFA_URLS = {
-    "https://fofa.info/result?qbase64=invkchh5iIAMJIbJB3VudHJ5PSJDTiI%3D": "ip.txt",
+    "https://fofa.info/result?qbase64=InVkcHh5IiAmJiBjb3VudHJ5PSJDTiI%3D": "ip.txt",
 }
 HEADERS = {
-    "User-Agent": "Mozilla/5.0(Windows NT 10.0; Win64; x64)"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
 
 COUNTER_FILE = "计数.txt"
@@ -49,7 +49,7 @@ CHANNEL_CATEGORIES = {
     "湖北": [
         "湖北公共新闻", "湖北经视频道", "湖北综合频道", "湖北垄上频道", "湖北影视频道", "湖北生活频道", "湖北教育频道", "武汉新闻综合", "武汉电视剧", "武汉科技生活",
         "武汉文体频道", "武汉教育频道", "阳新综合", "房县综合", "蔡甸综合",
-    ],
+    ],#任意添加，与仓库中rtp/省份运营商.txt内频道一致即可，或在下方频道名映射中改名
 }
 
 # ===== 映射（别名 -> 标准名） =====
@@ -150,7 +150,7 @@ CHANNEL_MAPPING = {
     "中国交通": ["中国交通频道"],
     "中国天气": ["中国天气频道"],
     "华数4K": ["华数低于4K", "华数4K电影", "华数爱上4K"],
-}
+}#格式为"频道分类中的标准名": ["rtp/中的名字"],
 
 # ===============================
 def get_run_count():
@@ -444,11 +444,14 @@ def third_stage():
 
     # 写 IPTV.txt（包含更新时间与分类）
     beijing_now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+    disclaimer_url = "https://kakaxi-1.asia/LOGO/Disclaimer.mp4"
 
     try:
         with open(IPTV_FILE, "w", encoding="utf-8") as f:
             f.write(f"更新时间: {beijing_now}（北京时间）\n\n")
-            
+            f.write("更新时间,#genre#\n")
+            f.write(f"{beijing_now},{disclaimer_url}\n\n")
+
             for category, ch_list in CHANNEL_CATEGORIES.items():
                 f.write(f"{category},#genre#\n")
                 for ch in ch_list:
