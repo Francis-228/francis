@@ -1,2 +1,4 @@
-requests>=2.31.0
-tenacity>=8.2.3
+aiohttp>=3.9.1
+flask>=2.3.3
+psutil>=5.9.6
+pytz>=2025.1
