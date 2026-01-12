@@ -444,7 +444,7 @@ def third_stage():
 
     # 写 IPTV.txt（包含更新时间与分类）
     beijing_now = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
-    disclaimer_url = "http://kakaxi.indevs.in/LOGO/Disclaimer.mp4"
+    disclaimer_url = "http://francis-228.indevs.in/LOGO/Disclaimer.mp4"
 
     try:
         with open(IPTV_FILE, "w", encoding="utf-8") as f:
@@ -496,3 +496,4 @@ if __name__ == "__main__":
         print("ℹ️ 本次不是 10 的倍数，跳过第二、三阶段")
 
     push_all_files()
+
