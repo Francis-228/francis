@@ -1,7 +1,7 @@
-更新时间: 2026-05-05 18:21:20（北京时间）
+更新时间: 2026-05-06 08:19:38（北京时间）
 
 更新时间,#genre#
-2026-05-05 18:21:20,http://francis-228.indevs.in/LOGO/Disclaimer.mp4
+2026-05-06 08:19:38,http://francis-228.indevs.in/LOGO/Disclaimer.mp4
 
 央视频道,#genre#
 CCTV1,http://183.220.107.138:4022/rtp/239.11.0.65:5140$四川移动
