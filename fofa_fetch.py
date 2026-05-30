@@ -4,13 +4,12 @@ import requests
 import time
 import concurrent.futures
 import subprocess
+import socket
+import base64
 from datetime import datetime, timezone, timedelta
 
 # ===============================
 # 配置区
-FOFA_URLS = {
-    "https://fofa.info/result?qbase64=InVkcHh5IiAmJiBjb3VudHJ5PSJDTiI%3D": "ip.txt",
-}
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 }
@@ -48,7 +47,7 @@ CHANNEL_CATEGORIES = {
     ],
     "河北": [ 
         "河北经济生活", "河北都市", "河北影视剧", "河北少儿科教", "河北公共", "河北农民", "睛彩河北","三佳购物",
-    ],#任意添加，与仓库中rtp/省份运营商.txt内频道一致即可，或在下方频道名映射中改名
+    ],
 }
 
 # ===== 映射（别名 -> 标准名） =====
@@ -149,7 +148,7 @@ CHANNEL_MAPPING = {
     "中国交通": ["中国交通频道"],
     "中国天气": ["中国天气频道"],
     "华数4K": ["华数低于4K", "华数4K电影", "华数爱上4K"],
-}#格式为"频道分类中的标准名": ["rtp/中的名字"],
+}
 
 # ===============================
 def get_run_count():
@@ -167,58 +166,126 @@ def save_run_count(count):
     except Exception as e:
         print(f"⚠️ 写计数文件失败：{e}")
 
-
-# ===============================
 def get_isp_from_api(data):
     isp_raw = (data.get("isp") or "").lower()
-
     if "telecom" in isp_raw or "ct" in isp_raw or "chinatelecom" in isp_raw:
         return "电信"
     elif "unicom" in isp_raw or "cu" in isp_raw or "chinaunicom" in isp_raw:
         return "联通"
     elif "mobile" in isp_raw or "cm" in isp_raw or "chinamobile" in isp_raw:
         return "移动"
-
     return "未知"
-
 
 def get_isp_by_regex(ip):
     if re.match(r"^(1[0-9]{2}|2[0-3]{2}|42|43|58|59|60|61|110|111|112|113|114|115|116|117|118|119|120|121|122|123|124|125|126|127|175|180|182|183|184|185|186|187|188|189|223)\.", ip):
         return "电信"
-
     elif re.match(r"^(42|43|58|59|60|61|110|111|112|113|114|115|116|117|118|119|120|121|122|123|124|125|126|127|175|180|182|183|184|185|186|187|188|189|223)\.", ip):
         return "联通"
-
     elif re.match(r"^(223|36|37|38|39|100|101|102|103|104|105|106|107|108|109|134|135|136|137|138|139|150|151|152|157|158|159|170|178|182|183|184|187|188|189)\.", ip):
         return "移动"
-
     return "未知"
 
-
 # ===============================
-# 第一阶段
+# 第一阶段 - 使用 FOFA API
 def first_stage():
     os.makedirs(IP_DIR, exist_ok=True)
     all_ips = set()
-
-    for url, filename in FOFA_URLS.items():
-        print(f"📡 正在爬取 {filename} ...")
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
-            urls_all = re.findall(r'<a href="http://(.*?)"', r.text)
-            all_ips.update(u.strip() for u in urls_all if u.strip())
-        except Exception as e:
-            print(f"❌ 爬取失败：{e}")
-        time.sleep(3)
-
+    
+    # 从环境变量获取 FOFA 密钥
+    email = os.getenv('FOFA_EMAIL')
+    key = os.getenv('FOFA_KEY')
+    
+    if not email or not key:
+        print("❌ 错误：未设置 FOFA_EMAIL 或 FOFA_KEY secrets")
+        print("请在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中添加")
+        return 0
+    
+    # 搜索语法：查找 udpxy 服务（用于 IPTV 转发）
+    query = 'header="udpxy" && country="CN"'
+    
+    query_base64 = base64.b64encode(query.encode()).decode()
+    
+    print(f"🔍 搜索语法: {query}")
+    print(f"🔐 Base64: {query_base64}")
+    
+    api_url = "https://fofa.info/api/v1/search/all"
+    
+    params = {
+        'email': email,
+        'key': key,
+        'qbase64': query_base64,
+        'size': 100,
+        'page': 1,
+        'fields': 'host'
+    }
+    
+    try:
+        print(f"📡 正在调用 FOFA API...")
+        response = requests.get(api_url, params=params, timeout=30)
+        
+        print(f"📡 HTTP状态码: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            print(f"📊 API返回keys: {list(data.keys())}")
+            print(f"📈 结果总数: {data.get('size', 0)}")
+            print(f"📄 当前页数量: {len(data.get('results', []))}")
+            
+            results = data.get('results', [])
+            
+            if not results:
+                print("⚠️ 警告：API返回成功但结果为0！")
+                print("可能原因：")
+                print("  1. 查询语法没有匹配到任何IP")
+                print("  2. FOFA账户权限不足（免费账户API限制）")
+                print("  3. 需要充值F币")
+                
+                # 尝试测试账户信息
+                info_resp = requests.get(
+                    f"https://fofa.info/api/v1/info/my?email={email}&key={key}"
+                )
+                print(f"📊 账户信息: {info_resp.text}")
+                return 0
+            
+            # 提取 IP:PORT
+            for result in results:
+                host = result.get('host', '')
+                if host:
+                    all_ips.add(host)
+            
+            print(f"✅ 获取到 {len(all_ips)} 个 IP:PORT")
+            
+            # 打印前5个示例
+            sample_ips = list(all_ips)[:5]
+            for i, ip in enumerate(sample_ips):
+                print(f"  示例 {i+1}: {ip}")
+                
+        else:
+            print(f"❌ API错误: {response.status_code}")
+            print(f"错误详情: {response.text}")
+            return 0
+            
+    except Exception as e:
+        print(f"❌ 请求异常: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+    
+    if not all_ips:
+        print("❌ 未获取到任何IP，跳过后续处理")
+        return 0
+    
+    # 解析IP的地理位置和运营商
     province_isp_dict = {}
-
+    
     for ip_port in all_ips:
         try:
             host = ip_port.split(":")[0]
-
+            
+            # 判断是否是IP地址
             is_ip = re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host)
-
+            
             if not is_ip:
                 try:
                     resolved_ip = socket.gethostbyname(host)
@@ -229,43 +296,45 @@ def first_stage():
                     continue
             else:
                 ip = host
-
+            
+            # 查询IP地理位置
             res = requests.get(f"http://ip-api.com/json/{ip}?lang=zh-CN", timeout=10)
             data = res.json()
-
+            
             province = data.get("regionName", "未知")
             isp = get_isp_from_api(data)
-
+            
             if isp == "未知":
                 isp = get_isp_by_regex(ip)
-
+            
             if isp == "未知":
                 print(f"⚠️ 无法判断运营商，跳过：{ip_port}")
                 continue
-
+            
             fname = f"{province}{isp}.txt"
             province_isp_dict.setdefault(fname, set()).add(ip_port)
-
+            
         except Exception as e:
             print(f"⚠️ 解析 {ip_port} 出错：{e}")
             continue
-
-    count = get_run_count() + 1
-    save_run_count(count)
-
+    
+    # 写入文件
     for filename, ip_set in province_isp_dict.items():
         path = os.path.join(IP_DIR, filename)
         try:
             with open(path, "a", encoding="utf-8") as f:
                 for ip_port in sorted(ip_set):
                     f.write(ip_port + "\n")
-            print(f"{path} 已追加写入 {len(ip_set)} 个 IP")
+            print(f"📁 {path} 已追加写入 {len(ip_set)} 个 IP")
         except Exception as e:
             print(f"❌ 写入 {path} 失败：{e}")
-
+    
+    # 更新计数
+    count = get_run_count() + 1
+    save_run_count(count)
+    
     print(f"✅ 第一阶段完成，当前轮次：{count}")
     return count
-
 
 # ===============================
 # 第二阶段
@@ -331,7 +400,6 @@ def second_stage():
         print(f"🎯 第二阶段完成，写入 {len(unique)} 条记录")
     except Exception as e:
         print(f"❌ 写文件失败：{e}")
-
 
 # ===============================
 # 第三阶段
@@ -495,6 +563,3 @@ if __name__ == "__main__":
         print("ℹ️ 本次不是 10 的倍数，跳过第二、三阶段")
 
     push_all_files()
-
-
-
