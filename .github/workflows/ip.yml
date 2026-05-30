@@ -3,7 +3,7 @@ name: FOFA IP
 on:
   schedule:
     - cron: "*/15 * * * *"
-  workflow_dispatch:          # 手动触发
+  workflow_dispatch:
 
 jobs:
   fetch-and-push:
@@ -30,6 +30,9 @@ jobs:
 
       - name: Run fofa_fetch.py
         run: python fofa_fetch.py
+        env:
+          FOFA_EMAIL: ${{ secrets.FOFA_EMAIL }}
+          FOFA_KEY: ${{ secrets.FOFA_KEY }}
 
       - name: Commit and push changes
         run: |
